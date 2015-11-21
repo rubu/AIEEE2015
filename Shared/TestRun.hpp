@@ -1,11 +1,15 @@
 #pragma once
 
+#include "CodecContextBase.hpp"
+#include "InputFileLoader.hpp"
+
 #include <Windows.h>
 
 #include <vector>
 #include <deque>
 #include <iostream>
 #include <memory>
+#include <iomanip> 
 
 template<typename _Codec>
 class CTestRun
@@ -16,10 +20,10 @@ public:
 	public:
 		CTestContext(const CTestContext& TestContext) = delete;
 
-		CTestContext(size_t nFrameCount, unsigned int nContextId, unsigned int nFps, const typename _Codec::CContext& CodecContext) : m_Codec(CodecContext), m_nContextId(nContextId), m_hNewFrameEvent(CreateEvent(NULL, FALSE, FALSE, NULL)), m_fDuration(nFrameCount * 1.0 / nFps), m_hCodecInitializedEvent(CreateEvent(NULL, TRUE, FALSE, NULL))
+		CTestContext(size_t nFrameCount, unsigned int nContextId, unsigned int nFps, CCodecContextBase& CodecContext) : m_Codec(nContextId, CodecContext), m_nContextId(nContextId), m_hNewFrameEvent(CreateEvent(NULL, FALSE, FALSE, NULL)), m_hCodecInitializedEvent(CreateEvent(NULL, TRUE, FALSE, NULL))
 		{
 			InitializeCriticalSection(&m_CriticalSection);
-			m_FrameStatistics.resize(nFrameCount);
+			m_FrameSizes.resize(nFrameCount);
 		}
 
 		~CTestContext()
@@ -56,29 +60,20 @@ public:
 			SetEvent(m_hNewFrameEvent);
 		}
 
-		void SetFrameStatistics(unsigned int nFrameIndex, LONGLONG nElapsedTime, unsigned int nSize)
+		void SetFrameSize(unsigned int nFrameIndex, unsigned int nSize)
 		{
 			EnterCriticalSection(&m_CriticalSection);
-			m_FrameStatistics[nFrameIndex] = std::make_pair(nElapsedTime, nSize);
+			m_FrameSizes[nFrameIndex] = nSize;
 			LeaveCriticalSection(&m_CriticalSection);
 		}
 
-		void PrintStatistics(double& fTotalBitrate, size_t& nFramesDropped)
+		void GetStatistics(size_t& nTotalSize, size_t& nFramesDropped)
 		{
-			std::cout << "Frames dropped: " << m_nFramesDropped << std::endl;
-			unsigned int nFrameIndex = 0;
-			LARGE_INTEGER PerformanceFrequency;
-			QueryPerformanceFrequency(&PerformanceFrequency);
-			size_t nTotalBitrate = 0;
-			for (auto& FrameStatistics : m_FrameStatistics)
+			for (auto& FrameSize : m_FrameSizes)
 			{
-				std::cout << "\t" << nFrameIndex++ << ": elapsed time - " << FrameStatistics.first * 1.0 / PerformanceFrequency.QuadPart << ", size - " << FrameStatistics.second << std::endl;
-				nTotalBitrate += FrameStatistics.second;
+				nTotalSize += FrameSize;
 			}
-			double fTestRunBitrate = 8.0 * nTotalBitrate / m_fDuration;
-			fTotalBitrate += fTestRunBitrate;
 			nFramesDropped += m_nFramesDropped;
-			std::cout << "Total bitrate: " << std::fixed << fTestRunBitrate << " bits/s" << std::endl;
 		}
 
 		void Run()
@@ -86,16 +81,13 @@ public:
 			m_Codec.Initialize();
 			SetEvent(m_hCodecInitializedEvent);
 			unsigned char* pFrame = nullptr;
-			LARGE_INTEGER Start, Stop;
 			bool bFirstFrame = true;
 			unsigned int nFrameIndex = 0;
 			while ((pFrame = GetNewFrame(nFrameIndex)) != nullptr)
 			{
-				QueryPerformanceCounter(&Start);
 				unsigned int nSize = m_Codec.Encode(pFrame, bFirstFrame);
 				bFirstFrame = false;
-				QueryPerformanceCounter(&Stop);
-				SetFrameStatistics(nFrameIndex, Stop.QuadPart - Start.QuadPart, nSize);
+				SetFrameSize(nFrameIndex, nSize);
 			}
 		}
 
@@ -104,26 +96,24 @@ public:
 			WaitForSingleObject(m_hCodecInitializedEvent, INFINITE);
 		}
 
-		void Store()
-		{
-			m_Codec.Store(m_nContextId);
-		}
-
 	private:
 		CRITICAL_SECTION m_CriticalSection;
 		unsigned char* m_pCurrentFrame = nullptr;
 		HANDLE m_hNewFrameEvent;
 		size_t m_nFramesDropped = 0;
 		unsigned int  m_nFrameCount = 0;
-		std::vector<std::pair<LONGLONG, unsigned int>> m_FrameStatistics;
+		std::vector<unsigned int> m_FrameSizes;
 		_Codec m_Codec;
 		unsigned int m_nContextId;
-		double m_fDuration;
 		HANDLE m_hCodecInitializedEvent;
 	};
 
-	CTestRun(const std::unique_ptr<unsigned char[]>& pInput, unsigned int nThreadCount, const typename _Codec::CContext& CodecContext) 
+	CTestRun(const char* pInputFilename, unsigned int nThreadCount, CCodecContextBase& CodecContext) 
 	{
+		SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_TIME_CRITICAL);
+		CInputFileLoader InputFileLoader(pInputFilename, CodecContext.GetWidth(), CodecContext.GetHeight());
+		CodecContext.SetFrameCount(InputFileLoader.GetFrameCount());
+		std::cout << "Input file preloaded!" << std::endl;
 		DWORD nThreadId = 0;
 		for (unsigned int nThreadIndex = 0; nThreadIndex < nThreadCount; ++nThreadIndex)
 		{
@@ -140,16 +130,16 @@ public:
 		SYSTEM_INFO SystemInfo;
 		GetSystemInfo(&SystemInfo);
 		HANDLE hCurrentProcess = GetCurrentProcess();
-		QueryPerformanceCounter(&Start);
 		FILETIME CreationFileTime, ExitFileTime, StartUserFileTime, StartKerneFileTime, StopUserFileTime, StopKernelFileTime;
+		QueryPerformanceCounter(&Start);
 		GetProcessTimes(hCurrentProcess, &CreationFileTime, &ExitFileTime, &StartKerneFileTime, &StartUserFileTime);
-		unsigned int nFrameIndex = 0;
-		while (nFrameIndex < CodecContext.GetFrameCount())
+		const auto& Frames = InputFileLoader.GetFrames();
+		for (const auto& Frame : Frames)
 		{
 			WaitForSingleObject(hTimer, INFINITE);
 			for (auto& TestContext : m_TestContexts)
 			{
-				TestContext->PushFrame(pInput.get() + nFrameIndex * CodecContext.GetWidth() * CodecContext.GetHeight() * 4);
+				TestContext->PushFrame(Frame.get());
 			}
 		}
 		WaitForSingleObject(hTimer, INFINITE);
@@ -157,9 +147,9 @@ public:
 		{
 			TestContext->PushFrame(nullptr);
 		}
-		WaitForMultipleObjects(static_cast<DWORD>(m_Threads.size()), &m_Threads[0], TRUE, INFINITE);
-		GetProcessTimes(hCurrentProcess, &CreationFileTime, &ExitFileTime, &StopKernelFileTime, &StopUserFileTime);
 		QueryPerformanceCounter(&End);
+		GetProcessTimes(hCurrentProcess, &CreationFileTime, &ExitFileTime, &StopKernelFileTime, &StopUserFileTime);
+		WaitForMultipleObjects(static_cast<DWORD>(m_Threads.size()), &m_Threads[0], TRUE, INFINITE);
 		QueryPerformanceFrequency(&Frequency);
 		auto fConsumedTime = (End.QuadPart - Start.QuadPart) * 1.0f / (Frequency.QuadPart);
 		ULARGE_INTEGER StartUserTime{ StartUserFileTime.dwLowDateTime, StartUserFileTime.dwHighDateTime },
@@ -167,18 +157,17 @@ public:
 			StartKernelTime{ StartKerneFileTime.dwLowDateTime, StartKerneFileTime.dwHighDateTime },
 			StopKernelTime{ StopKernelFileTime.dwLowDateTime, StopKernelFileTime.dwHighDateTime };
 		auto fConsumedCpuTime = ((StopUserTime.QuadPart - StartUserTime.QuadPart) + (StopKernelTime.QuadPart - StartKernelTime.QuadPart)) / (10000000.0);
-		std::cout << "Elapsed time: " << fConsumedTime << " , consumed CPU: " << fConsumedCpuTime * 100.0 / (fConsumedTime * SystemInfo.dwNumberOfProcessors) << std::endl;
 		unsigned int nTestContextIndex = 0;
-		double fTotalBitrate = 0.0;
+		size_t nTotalSize = 0;
 		size_t nTotalDroppedFrames = 0;
 		for (auto &TestContext : m_TestContexts)
 		{
-			std::cout << nTestContextIndex++ << ": " << std::endl;
-			TestContext->PrintStatistics(fTotalBitrate, nTotalDroppedFrames);
-			TestContext->Store();
-			std::cout << std::endl;
+			TestContext->GetStatistics(nTotalSize, nTotalDroppedFrames);
 		}
-		std::cout << "Total bitrate for all streams: " << std::fixed << fTotalBitrate << ", total frames/dropped: " << CodecContext.GetFrameCount() * nThreadCount << "/" << nTotalDroppedFrames << std::endl;
+		std::cout << "Elapsed time: Consumed CPU: Frames total: Frames dropped: Duration: Total size: Total Bitrate:" << std::endl;
+		const double fDuration = (Frames.size() * 1.0) / CodecContext.GetFps();
+		std::cout << std::setw(13) << fConsumedTime << " " << std::setw(13) << fConsumedCpuTime * 100.0 / (fConsumedTime * SystemInfo.dwNumberOfProcessors) << " " <<
+			std::setw(13) << Frames.size() * nThreadCount << " " << std::setw(15) << nTotalDroppedFrames << " " << std::setw(9) << fDuration << " " << std::setw(11) << nTotalSize << " " << std::fixed << (nTotalSize * 8.0) / fDuration;
 		CancelWaitableTimer(hTimer);
 		CloseHandle(hTimer);
 	}

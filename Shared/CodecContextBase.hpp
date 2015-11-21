@@ -3,7 +3,7 @@
 class CCodecContextBase
 {
 public:
-	CCodecContextBase(unsigned int nWidth, unsigned int nHeight, unsigned int nFps, unsigned int nFrameCount) : m_nWidth(nWidth), m_nHeight(nHeight), m_nFps(nFps), m_nFrameCount(nFrameCount)
+	CCodecContextBase(unsigned int nWidth, unsigned int nHeight, unsigned int nFps, bool bSaveOutputToFile) : m_nWidth(nWidth), m_nHeight(nHeight), m_nFps(nFps), m_bSaveOutputToFile(bSaveOutputToFile)
 	{
 	}
 
@@ -26,9 +26,21 @@ public:
 	{
 		return m_nFrameCount;
 	}
+
+	bool GetSaveOutputToFile()
+	{
+		return m_bSaveOutputToFile;
+	}
+
+	void SetFrameCount(unsigned int nFrameCount)
+	{
+		m_nFrameCount = nFrameCount;
+	}
+
 private:
 	unsigned int m_nWidth;
 	unsigned int m_nHeight;
 	unsigned int m_nFps;
-	unsigned int m_nFrameCount;
+	unsigned int m_nFrameCount = 0;
+	bool m_bSaveOutputToFile;
 };

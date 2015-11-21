@@ -1,0 +1,29 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <Filter Include="Source Files">
+      <UniqueIdentifier>{5e4df212-ce7f-469f-8b54-642d5c50960a}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Header Files">
+      <UniqueIdentifier>{a1d0a3f2-3add-4a7b-99fb-44deded1eab0}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="CUDA Kernels">
+      <UniqueIdentifier>{252cd980-a0c3-4291-85d6-b5bca10ef454}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="NvidiaNvencTest.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="CudaRgb32ToNv12.hpp">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <CudaCompile Include="CudaRgb32ToNv12.cu">
+      <Filter>CUDA Kernels</Filter>
+    </CudaCompile>
+  </ItemGroup>
+</Project>
