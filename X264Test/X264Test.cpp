@@ -166,6 +166,7 @@ int main(int argc, char** argv)
 			return EXIT_FAILURE;
 		}
 		avcodec_register_all();
+		av_log_set_level(AV_LOG_ERROR);
 		unsigned int nWidth = std::stoi(argv[2]), nHeight = std::stoi(argv[3]), nThreads = std::stoi(argv[4]), nFps = std::stoi(argv[5]), nBitrate = std::stoi(argv[6]);
 		bool bSaveOutputToFile = strcmp("true", argv[8]) == 0;
 		std::cout << "Input " << argv[1] << " - " << nWidth << "x" << nHeight << ", threads: " << nThreads << ", fps: " << nFps << ", bitrate: " << nBitrate << " bit/s per stream, save output to file: " << bSaveOutputToFile << ", preset: " << argv[7] << std::endl;

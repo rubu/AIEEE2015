@@ -10,6 +10,83 @@
 #include <iostream>
 #include <memory>
 #include <iomanip> 
+#include <pdh.h>
+#include <strsafe.h>
+
+#pragma comment(lib, "pdh.lib")
+
+class CSystemTime
+{
+public:
+	CSystemTime()
+	{
+		FILETIME SystemTime;
+		GetSystemTimeAsFileTime(&SystemTime);
+		m_SystemTime.LowPart = SystemTime.dwLowDateTime;
+		m_SystemTime.HighPart = SystemTime.dwHighDateTime;
+	}
+
+	ULONGLONG GetSystemTime()
+	{
+		return m_SystemTime.QuadPart;
+	}
+
+private:
+	ULARGE_INTEGER m_SystemTime;
+};
+
+class CCpuUsageMonitor
+{
+public:
+	CCpuUsageMonitor(const wchar_t* pProcessName)
+	{
+		
+		GetSystemInfo(&m_SystemInfo);
+		auto nStatus = PdhOpenQuery(NULL, NULL, &m_hPdhQuery);
+		_ASSERT(nStatus == ERROR_SUCCESS);
+		nStatus = PdhAddCounter(m_hPdhQuery, L"\\Processor(_Total)\\% Processor Time", NULL, &m_hPdhCpuUsageCounter);
+		_ASSERT(nStatus == ERROR_SUCCESS);
+		wchar_t pCounterPath[PDH_MAX_COUNTER_PATH];
+		StringCbPrintf(pCounterPath, PDH_MAX_COUNTER_PATH, L"\\Process(%s)\\%% Processor Time", pProcessName);
+		nStatus = PdhAddCounter(m_hPdhQuery, pCounterPath, NULL, &m_hPhdProcessCpuUsageCounter);
+		_ASSERT(nStatus == ERROR_SUCCESS);
+	}
+
+	~CCpuUsageMonitor()
+	{
+		PdhCloseQuery(&m_hPdhQuery);
+	}
+
+	void CollectSample()
+	{
+		auto nStatus = PdhCollectQueryData(m_hPdhQuery);
+		_ASSERT(nStatus == ERROR_SUCCESS);
+	}
+
+	double GetCpuUsage()
+	{
+		DWORD nType;
+		PDH_FMT_COUNTERVALUE CounterValue;
+		auto nStatus = PdhGetFormattedCounterValue(m_hPdhCpuUsageCounter, PDH_FMT_DOUBLE | PDH_FMT_NOCAP100, &nType, &CounterValue);
+		_ASSERT(nStatus == ERROR_SUCCESS);
+		return CounterValue.doubleValue;
+	}
+
+	double GetProcessCpuUsage()
+	{
+		DWORD nType;
+		PDH_FMT_COUNTERVALUE CounterValue;
+		auto nStatus = PdhGetFormattedCounterValue(m_hPhdProcessCpuUsageCounter, PDH_FMT_DOUBLE | PDH_FMT_NOCAP100, &nType, &CounterValue);
+		_ASSERT(nStatus == ERROR_SUCCESS);
+		return CounterValue.doubleValue / m_SystemInfo.dwNumberOfProcessors;
+	}
+
+private:
+	SYSTEM_INFO m_SystemInfo;
+	HANDLE m_hPdhQuery;
+	HANDLE m_hPdhCpuUsageCounter;
+	HANDLE m_hPhdProcessCpuUsageCounter;
+};
 
 template<typename _Codec>
 class CTestRun
@@ -108,7 +185,7 @@ public:
 		HANDLE m_hCodecInitializedEvent;
 	};
 
-	CTestRun(const char* pInputFilename, unsigned int nThreadCount, CCodecContextBase& CodecContext) 
+	CTestRun(const char* pInputFilename, unsigned int nThreadCount, CCodecContextBase& CodecContext, CCpuUsageMonitor& CpuUsageMonitor)
 	{
 		SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_TIME_CRITICAL);
 		CInputFileLoader InputFileLoader(pInputFilename, CodecContext.GetWidth(), CodecContext.GetHeight());
@@ -126,13 +203,8 @@ public:
 		HANDLE hTimer = CreateWaitableTimer(NULL, FALSE, NULL);
 		LARGE_INTEGER DueTime = { 0 };
 		SetWaitableTimer(hTimer, &DueTime, 1000 / CodecContext.GetFps(), nullptr, nullptr, FALSE);
-		LARGE_INTEGER Start, End, Frequency;
-		SYSTEM_INFO SystemInfo;
-		GetSystemInfo(&SystemInfo);
-		HANDLE hCurrentProcess = GetCurrentProcess();
-		FILETIME CreationFileTime, ExitFileTime, StartUserFileTime, StartKerneFileTime, StopUserFileTime, StopKernelFileTime;
-		QueryPerformanceCounter(&Start);
-		GetProcessTimes(hCurrentProcess, &CreationFileTime, &ExitFileTime, &StartKerneFileTime, &StartUserFileTime);
+		CSystemTime StartSystemTime;
+		CpuUsageMonitor.CollectSample();
 		const auto& Frames = InputFileLoader.GetFrames();
 		for (const auto& Frame : Frames)
 		{
@@ -147,16 +219,9 @@ public:
 		{
 			TestContext->PushFrame(nullptr);
 		}
-		QueryPerformanceCounter(&End);
-		GetProcessTimes(hCurrentProcess, &CreationFileTime, &ExitFileTime, &StopKernelFileTime, &StopUserFileTime);
+		CpuUsageMonitor.CollectSample();
+		CSystemTime StopSystemTime;
 		WaitForMultipleObjects(static_cast<DWORD>(m_Threads.size()), &m_Threads[0], TRUE, INFINITE);
-		QueryPerformanceFrequency(&Frequency);
-		auto fConsumedTime = (End.QuadPart - Start.QuadPart) * 1.0f / (Frequency.QuadPart);
-		ULARGE_INTEGER StartUserTime{ StartUserFileTime.dwLowDateTime, StartUserFileTime.dwHighDateTime },
-			StopUserTime{ StopUserFileTime.dwLowDateTime, StopUserFileTime.dwHighDateTime },
-			StartKernelTime{ StartKerneFileTime.dwLowDateTime, StartKerneFileTime.dwHighDateTime },
-			StopKernelTime{ StopKernelFileTime.dwLowDateTime, StopKernelFileTime.dwHighDateTime };
-		auto fConsumedCpuTime = ((StopUserTime.QuadPart - StartUserTime.QuadPart) + (StopKernelTime.QuadPart - StartKernelTime.QuadPart)) / (10000000.0);
 		unsigned int nTestContextIndex = 0;
 		size_t nTotalSize = 0;
 		size_t nTotalDroppedFrames = 0;
@@ -166,7 +231,7 @@ public:
 		}
 		std::cout << "Elapsed time: Consumed CPU: Frames total: Frames dropped: Duration: Total size: Total Bitrate:" << std::endl;
 		const double fDuration = (Frames.size() * 1.0) / CodecContext.GetFps();
-		std::cout << std::setw(13) << fConsumedTime << " " << std::setw(13) << fConsumedCpuTime * 100.0 / (fConsumedTime * SystemInfo.dwNumberOfProcessors) << " " <<
+		std::cout << std::setw(13) << (StopSystemTime.GetSystemTime() - StartSystemTime.GetSystemTime()) / 10000000.0 << " " << std::setw(13) << CpuUsageMonitor.GetCpuUsage() << " " <<
 			std::setw(13) << Frames.size() * nThreadCount << " " << std::setw(15) << nTotalDroppedFrames << " " << std::setw(9) << fDuration << " " << std::setw(11) << nTotalSize << " " << std::fixed << (nTotalSize * 8.0) / fDuration;
 		CancelWaitableTimer(hTimer);
 		CloseHandle(hTimer);
