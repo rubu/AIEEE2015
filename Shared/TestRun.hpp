@@ -35,6 +35,15 @@ private:
 	ULARGE_INTEGER m_SystemTime;
 };
 
+class CSystemTimes
+{
+public:
+	CSystemTimes()
+	{
+
+	}
+};
+
 class CCpuUsageMonitor
 {
 public:
@@ -231,7 +240,7 @@ public:
 		}
 		std::cout << "Elapsed time: Consumed CPU: Frames total: Frames dropped: Duration: Total size: Total Bitrate:" << std::endl;
 		const double fDuration = (Frames.size() * 1.0) / CodecContext.GetFps();
-		std::cout << std::setw(13) << (StopSystemTime.GetSystemTime() - StartSystemTime.GetSystemTime()) / 10000000.0 << " " << std::setw(13) << CpuUsageMonitor.GetCpuUsage() << " " <<
+		std::cout << std::setw(13) << (StopSystemTime.GetSystemTime() - StartSystemTime.GetSystemTime()) / 10000000.0 << " " << std::setw(13) << CpuUsageMonitor.GetProcessCpuUsage() << " " <<
 			std::setw(13) << Frames.size() * nThreadCount << " " << std::setw(15) << nTotalDroppedFrames << " " << std::setw(9) << fDuration << " " << std::setw(11) << nTotalSize << " " << std::fixed << (nTotalSize * 8.0) / fDuration;
 		CancelWaitableTimer(hTimer);
 		CloseHandle(hTimer);
