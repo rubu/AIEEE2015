@@ -15,6 +15,14 @@
 
 #pragma comment(lib, "pdh.lib")
 
+ULARGE_INTEGER FileTimeToLargeInteger(const FILETIME& FileTime)
+{
+	ULARGE_INTEGER LargeInteger;
+	LargeInteger.LowPart = FileTime.dwLowDateTime;
+	LargeInteger.HighPart = FileTime.dwHighDateTime;
+	return LargeInteger;
+}
+
 class CSystemTime
 {
 public:
@@ -22,8 +30,7 @@ public:
 	{
 		FILETIME SystemTime;
 		GetSystemTimeAsFileTime(&SystemTime);
-		m_SystemTime.LowPart = SystemTime.dwLowDateTime;
-		m_SystemTime.HighPart = SystemTime.dwHighDateTime;
+		m_SystemTime = FileTimeToLargeInteger(SystemTime);
 	}
 
 	ULONGLONG GetSystemTime()
@@ -40,8 +47,57 @@ class CSystemTimes
 public:
 	CSystemTimes()
 	{
-
+		FILETIME IdleTime, UserTime, KernelTime;
+		GetSystemTimes(&IdleTime, &UserTime, &KernelTime);
+		m_IdleTime = FileTimeToLargeInteger(IdleTime);
+		m_UserTime = FileTimeToLargeInteger(UserTime);
+		m_KernelTime = FileTimeToLargeInteger(KernelTime);
 	}
+
+	ULONGLONG GetUserTime()
+	{
+		return m_UserTime.QuadPart;
+	}
+
+	ULONGLONG GetKernelTime()
+	{
+		return m_KernelTime.QuadPart;
+	}
+
+	ULONGLONG GetIdleTime()
+	{
+		return m_IdleTime.QuadPart;
+	}
+
+public:
+	ULARGE_INTEGER m_IdleTime;
+	ULARGE_INTEGER m_UserTime;
+	ULARGE_INTEGER m_KernelTime;
+};
+
+class CProcessTimes
+{
+public:
+	CProcessTimes()
+	{
+		FILETIME CreationTime, ExitTime, KernelTime, UserTime;
+		GetProcessTimes(GetCurrentProcess(), &CreationTime, &ExitTime, &KernelTime, &UserTime);
+		m_UserTime = FileTimeToLargeInteger(UserTime);
+		m_KernelTime = FileTimeToLargeInteger(KernelTime);
+	}
+
+	ULONGLONG GetUserTime()
+	{
+		return m_UserTime.QuadPart;
+	}
+
+	ULONGLONG GetKernelTime()
+	{
+		return m_KernelTime.QuadPart;
+	}
+public:
+	ULARGE_INTEGER m_UserTime;
+	ULARGE_INTEGER m_KernelTime;
 };
 
 class CCpuUsageMonitor
@@ -214,6 +270,8 @@ public:
 		SetWaitableTimer(hTimer, &DueTime, 1000 / CodecContext.GetFps(), nullptr, nullptr, FALSE);
 		CSystemTime StartSystemTime;
 		CpuUsageMonitor.CollectSample();
+		CProcessTimes StartProcessTimes;
+		CSystemTimes StartSystemTimes;
 		const auto& Frames = InputFileLoader.GetFrames();
 		for (const auto& Frame : Frames)
 		{
@@ -230,6 +288,8 @@ public:
 		}
 		CpuUsageMonitor.CollectSample();
 		CSystemTime StopSystemTime;
+		CProcessTimes StopProcessTimes;
+		CSystemTimes StopSystemTimes;
 		WaitForMultipleObjects(static_cast<DWORD>(m_Threads.size()), &m_Threads[0], TRUE, INFINITE);
 		unsigned int nTestContextIndex = 0;
 		size_t nTotalSize = 0;
@@ -238,6 +298,12 @@ public:
 		{
 			TestContext->GetStatistics(nTotalSize, nTotalDroppedFrames);
 		}
+		SYSTEM_INFO SystemInfo;
+		GetSystemInfo(&SystemInfo);
+		double fCpuUsageFromMethodOne = ((StopProcessTimes.GetUserTime() - StartProcessTimes.GetUserTime()) + (StopProcessTimes.GetKernelTime() - StartProcessTimes.GetKernelTime())) * 100.0 / (SystemInfo.dwNumberOfProcessors * (StopSystemTime.GetSystemTime() - StartSystemTime.GetSystemTime())),
+			fCpuUsageFromMethodTwo = ((StopProcessTimes.GetUserTime() - StartProcessTimes.GetUserTime()) + (StopProcessTimes.GetKernelTime() - StartProcessTimes.GetKernelTime())) * 100.0 / ((StopSystemTimes.GetKernelTime() - StartSystemTimes.GetKernelTime()) + (StopSystemTimes.GetUserTime() - StartSystemTimes.GetUserTime()));
+		std::cout << "Consumed CPU (GetProcessTimes() / Wall Time)" << fCpuUsageFromMethodTwo << std::endl;
+		std::cout << "Consumed CPU (GetProcessTimes() / GetSystemTimes())" << fCpuUsageFromMethodOne << std::endl;
 		std::cout << "Elapsed time: Consumed CPU: Frames total: Frames dropped: Duration: Total size: Total Bitrate:" << std::endl;
 		const double fDuration = (Frames.size() * 1.0) / CodecContext.GetFps();
 		std::cout << std::setw(13) << (StopSystemTime.GetSystemTime() - StartSystemTime.GetSystemTime()) / 10000000.0 << " " << std::setw(13) << CpuUsageMonitor.GetProcessCpuUsage() << " " <<

@@ -305,7 +305,8 @@ int main(int argc, char** argv)
 		unsigned int nWidth = std::stoi(argv[2]), nHeight = std::stoi(argv[3]), nThreads = std::stoi(argv[4]), nFps = std::stoi(argv[5]), nBitrate = std::stoi(argv[6]);
 		bool bSaveOutputToFile = strcmp("true", argv[7]) == 0;
 		std::cout << "Input " << argv[1] << " - " << nWidth << "x" << nHeight << ", threads: " << nThreads << ", fps: " << nFps << ", bitrate: " << nBitrate << " bit/s per stream, save output to file: " << bSaveOutputToFile << std::endl;
-		CTestRun<CNvidiaNvencCodec> TestRun(argv[1], nThreads, CNvidiaNvencCodecContext(nWidth, nHeight, nFps, bSaveOutputToFile, nBitrate, true, false));
+		CCpuUsageMonitor CpuUsageMonitor(L"NvidiaNvencTest");
+		CTestRun<CNvidiaNvencCodec> TestRun(argv[1], nThreads, CNvidiaNvencCodecContext(nWidth, nHeight, nFps, bSaveOutputToFile, nBitrate, true, false), CpuUsageMonitor);
 	}
 	catch (std::exception& Exception)
 	{

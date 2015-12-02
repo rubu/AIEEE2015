@@ -78,10 +78,11 @@ int main(int argc, char** argv)
 			std::cout << "Usage: NvidiaNvencTest.exe <input filename> <width> <height> <threads> <fps> <quality> <save output to file>" << std::endl;
 			return EXIT_FAILURE;
 		}
-		unsigned int nWidth = std::stoi(argv[2]), nHeight = std::stoi(argv[3]), nThreads = std::stoi(argv[4]), nFps = std::stoi(argv[5]), nQuality = std::stoi(argv[6]);
-		bool bSaveOutputToFile = strcmp("true", argv[7]) == 0;
+		unsigned int nWidth = std::stoi(argv[2]), nHeight = std::stoi(argv[3]), nThreads = std::stoi(argv[4]), nFps = std::stoi(argv[5]), nQuality = std::stoi(argv[7]);
+		bool bSaveOutputToFile = strcmp("true", argv[6]) == 0;
 		std::cout << "Input " << argv[1] << " - " << nWidth << "x" << nHeight << ", threads: " << nThreads << ", fps: " << nFps << ", quality: " << nQuality << ", save output to file: " << bSaveOutputToFile << std::endl;
-		CTestRun<CLibjpegTurboCodec> TestRun(argv[1], nThreads, CLibjegTurboCodecContext(nWidth, nHeight, nFps, bSaveOutputToFile, nQuality));
+		CCpuUsageMonitor CpuUsageMonitor(L"LibjpegTurboTest");
+		CTestRun<CLibjpegTurboCodec> TestRun(argv[1], nThreads, CLibjegTurboCodecContext(nWidth, nHeight, nFps, bSaveOutputToFile, nQuality), CpuUsageMonitor);
 	}
 	catch (std::exception& Exception)
 	{

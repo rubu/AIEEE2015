@@ -74,7 +74,6 @@ public:
 		Options["threads"] = "1";
 		Options["preset"] = m_X264CodecContext.GetPreset();
 		Options["tune"] = "zerolatency";
-		Options["bitrate"] = std::to_string(m_X264CodecContext.GetBitrate() / 1000).append("k");
 		for (auto& Option : Options)
 		{
 			av_dict_set(&pOptions, Option.first.c_str(), Option.second.c_str(), 0);
@@ -170,7 +169,8 @@ int main(int argc, char** argv)
 		unsigned int nWidth = std::stoi(argv[2]), nHeight = std::stoi(argv[3]), nThreads = std::stoi(argv[4]), nFps = std::stoi(argv[5]), nBitrate = std::stoi(argv[6]);
 		bool bSaveOutputToFile = strcmp("true", argv[8]) == 0;
 		std::cout << "Input " << argv[1] << " - " << nWidth << "x" << nHeight << ", threads: " << nThreads << ", fps: " << nFps << ", bitrate: " << nBitrate << " bit/s per stream, save output to file: " << bSaveOutputToFile << ", preset: " << argv[7] << std::endl;
-		CTestRun<CX264Codec> TestRun(argv[1], nThreads, CX264CodecContext(nWidth, nHeight, nFps, bSaveOutputToFile, nBitrate, argv[7]));
+		CCpuUsageMonitor CpuUsageMonitor(L"X264Test");
+		CTestRun<CX264Codec> TestRun(argv[1], nThreads, CX264CodecContext(nWidth, nHeight, nFps, bSaveOutputToFile, nBitrate, argv[7]), CpuUsageMonitor);
 	}
 	catch (std::exception& Exception)
 	{
